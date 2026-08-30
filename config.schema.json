@@ -1,0 +1,65 @@
+{
+  "pluginAlias": "GoveePixelZones",
+  "pluginType": "platform",
+  "singular": true,
+  "strictValidation": true,
+  "schema": {
+    "type": "object",
+    "required": ["name", "deviceIp", "catalogPath", "baseSnapshot"],
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "Govee Pixel Zones"
+      },
+      "deviceIp": {
+        "title": "Govee LAN IP address",
+        "type": "string",
+        "placeholder": "192.0.2.1"
+      },
+      "catalogPath": {
+        "title": "Sanitized snapshot catalog",
+        "type": "string",
+        "default": "govee-pixel-zones/snapshots.json"
+      },
+      "baseSnapshot": {
+        "title": "Base Finger Sketch snapshot",
+        "type": "string"
+      },
+      "debounceMs": {
+        "title": "HomeKit write debounce (milliseconds)",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000,
+        "default": 80
+      },
+      "transitionMs": {
+        "title": "Transition duration (milliseconds)",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "default": 1500
+      },
+      "zones": {
+        "title": "Architectural zones",
+        "type": "array",
+        "default": [],
+        "items": {
+          "type": "object",
+          "required": ["name", "pixels"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "pixels": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

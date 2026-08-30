@@ -1,0 +1,50 @@
+{
+  "name": "homebridge-govee-pixel-zones",
+  "displayName": "Govee Pixel Zones",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "dist",
+    "config.schema.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "description": "Experimental local per-pixel zones and smooth snapshot transitions for Govee H706A permanent lights.",
+  "author": "Riley Sheehan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rileysheehan/homebridge-govee-pixel-zones.git"
+  },
+  "homepage": "https://github.com/rileysheehan/homebridge-govee-pixel-zones#readme",
+  "bugs": {
+    "url": "https://github.com/rileysheehan/homebridge-govee-pixel-zones/issues"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "supports-hap",
+    "govee",
+    "rgbic"
+  ],
+  "main": "dist/index.js",
+  "bin": {
+    "govee-pixel-zones-import": "dist/cli/import-homebridge.js",
+    "govee-pixel-zones-calibrate": "dist/cli/calibrate.js"
+  },
+  "engines": {
+    "node": "^22.10.0 || ^24.0.0",
+    "homebridge": "^1.8.0 || ^2.0.0"
+  },
+  "scripts": {
+    "build": "rimraf ./dist && tsc",
+    "test": "npm run build && node --test dist/*.test.js dist/**/*.test.js",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "homebridge": "^2.4.0",
+    "rimraf": "^6.1.3",
+    "typescript": "^5.9.0"
+  }
+}

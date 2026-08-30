@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tgz
+*.log
+.DS_Store
+
+# Personal architectural mappings belong in Homebridge config/storage.
+zones/*.json
