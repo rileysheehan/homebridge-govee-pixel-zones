@@ -42,6 +42,11 @@ function sameColor(left: RgbColor, right: RgbColor): boolean {
   return left.red === right.red && left.green === right.green && left.blue === right.blue;
 }
 
+function scaleColorBrightness(color: RgbColor, factor: number): RgbColor {
+  const hsv = rgbToHsv(color);
+  return hsvToRgb({ ...hsv, brightness: hsv.brightness * factor });
+}
+
 export class PixelController {
   private readonly snapshots = new Map<string, SnapshotDefinition>();
   private readonly zones = new Map<string, ZoneDefinition>();
@@ -55,6 +60,7 @@ export class PixelController {
   private activationPacket: string;
   private renderTimer?: NodeJS.Timeout;
   private renderWaiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
+  private pendingRenderBrightness?: number;
   private operation = Promise.resolve();
   private _power = true;
   private _brightness: number;
@@ -169,6 +175,7 @@ export class PixelController {
         // HomeKit lights retain their requested brightness while off. Keeping
         // it here also gives the next power-on operation a useful ramp target.
         this._brightness = targetBrightness;
+        this.refreshZoneStates();
         this.emit();
       }
     });
@@ -188,6 +195,7 @@ export class PixelController {
     if (!current || !zone) {
       return Promise.reject(new Error(`Unknown pixel zone: ${name}`));
     }
+    this.materializeGlobalBrightness();
     const next: ZoneState = {
       on: patch.on ?? current.on,
       hue: patch.hue ?? current.hue,
@@ -198,6 +206,12 @@ export class PixelController {
     const color = next.on ? hsvToRgb(next) : this.background;
     for (const pixel of zone.pixels) {
       this.pixels[pixel] = { ...color };
+    }
+    if ([...this.zoneStates.values()].every(state => !state.on)) {
+      // A HomeKit light group turns its members off one at a time. Once the
+      // final zone is off, include unassigned pucks in the fade and then power
+      // down the physical controller after the frame reaches darkness.
+      this.pixels = this.pixels.map(() => ({ ...this.background }));
     }
     this._activeSnapshot = undefined;
     this.emit();
@@ -217,13 +231,20 @@ export class PixelController {
       this.renderWaiters = [];
       this.serial(async () => {
         const target = this.pixels.map(color => ({ ...color }));
+        const targetBrightness = this.pendingRenderBrightness ?? this._brightness;
+        this.pendingRenderBrightness = undefined;
         await this.ensurePoweredForTransition();
         await this.transitionPixels(target, {
-          brightness: this._brightness,
+          brightness: targetBrightness,
           speed: this.speed,
           background: this.background,
           activationPacket: this.activationPacket,
         });
+        this.refreshZoneStates();
+        if ([...this.zoneStates.values()].every(state => !state.on)) {
+          await this.transport.setPower(false);
+          this._power = false;
+        }
         this.emit();
       }).then(
         () => waiters.forEach(waiter => waiter.resolve()),
@@ -254,6 +275,7 @@ export class PixelController {
         previous = value;
         this._brightness = value;
         this._power = true;
+        this.refreshZoneStates();
         this.emit();
       }
       if (interval > 0 && step < steps) {
@@ -272,7 +294,18 @@ export class PixelController {
     this._brightness = 1;
     await this.transport.setPower(true);
     this._power = true;
+    this.refreshZoneStates();
     this.emit();
+  }
+
+  private materializeGlobalBrightness(): void {
+    if (this.pendingRenderBrightness === 100 || this._brightness === 100) {
+      return;
+    }
+    const factor = this._brightness / 100;
+    this.pixels = this.pixels.map(color => scaleColorBrightness(color, factor));
+    this.background = scaleColorBrightness(this.background, factor);
+    this.pendingRenderBrightness = 100;
   }
 
   private async transitionPixels(
@@ -420,9 +453,22 @@ export class PixelController {
     for (const zone of this.zones.values()) {
       const colors = zone.pixels.map(pixel => this.pixels[pixel]);
       const onColor = colors.find(color => !sameColor(color, this.background));
+      if (!onColor) {
+        const previous = this.zoneStates.get(zone.name);
+        this.zoneStates.set(zone.name, {
+          on: false,
+          hue: previous?.hue ?? 0,
+          saturation: previous?.saturation ?? 0,
+          brightness: previous?.brightness ?? 100,
+        });
+        continue;
+      }
+      const color = rgbToHsv(onColor);
       this.zoneStates.set(zone.name, {
-        on: Boolean(onColor),
-        ...rgbToHsv(onColor ?? colors[0] ?? this.background),
+        on: true,
+        hue: color.hue,
+        saturation: color.saturation,
+        brightness: Math.round(color.brightness * this._brightness / 100),
       });
     }
   }

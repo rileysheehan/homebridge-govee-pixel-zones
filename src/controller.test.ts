@@ -59,6 +59,18 @@ test('activates a snapshot locally and refreshes logical zone state', async () =
   assert.equal(controller.state.activeSnapshot, 'Christmas');
   assert.equal(controller.state.brightness, 100);
   assert.equal(controller.state.zones.get('Left')?.hue, 0);
+  assert.equal(controller.state.zones.get('Left')?.brightness, 100);
+});
+
+test('reports snapshot brightness as each zone effective brightness', () => {
+  const transport = new FakeTransport();
+  const controller = new PixelController(lateNightCatalog, [
+    { name: 'Left', pixels: [0, 1] },
+    { name: 'Right', pixels: [2, 3] },
+  ], transport, 'Late Night', 0, 0);
+  assert.equal(controller.state.brightness, 5);
+  assert.equal(controller.state.zones.get('Left')?.brightness, 5);
+  assert.equal(controller.state.zones.get('Right')?.brightness, 5);
 });
 
 test('debounces HomeKit characteristic writes into one complete frame', async () => {
@@ -75,6 +87,62 @@ test('debounces HomeKit characteristic writes into one complete frame', async ()
   assert.equal(transport.calls.filter(call => call.type === 'packets').length, 1);
   assert.equal(controller.state.activeSnapshot, undefined);
   assert.equal(controller.state.zones.get('Left')?.hue, 300);
+  assert.equal(controller.state.zones.get('Left')?.brightness, 75);
+  assert.equal(controller.state.zones.get('Right')?.brightness, 50);
+  assert.equal(controller.state.brightness, 100);
+});
+
+test('materializes snapshot master brightness before independent zone control', async () => {
+  const transport = new FakeTransport();
+  const controller = new PixelController(catalog, [
+    { name: 'Left', pixels: [0, 1] },
+    { name: 'Right', pixels: [2, 3] },
+  ], transport, 'Default', 0, 0);
+  await controller.updateZone('Left', { brightness: 75 });
+  assert.deepEqual(transport.calls.map(call => call.type), ['brightness', 'packets']);
+  assert.equal(transport.calls[0].value, 100);
+  assert.equal(controller.state.zones.get('Left')?.brightness, 75);
+  assert.equal(controller.state.zones.get('Right')?.brightness, 50);
+});
+
+test('turning every zone off fades all pucks and powers down the controller', async () => {
+  const transport = new FakeTransport();
+  const controller = new PixelController(catalog, [
+    { name: 'Left', pixels: [0] },
+    { name: 'Right', pixels: [1] },
+  ], transport, 'Default', 5, 0);
+  await Promise.all([
+    controller.updateZone('Left', { on: false }),
+    controller.updateZone('Right', { on: false }),
+  ]);
+  assert.equal(transport.calls.at(-1)?.type, 'power');
+  assert.equal(transport.calls.at(-1)?.value, false);
+  assert.equal(controller.state.power, false);
+  assert.equal(controller.state.zones.get('Left')?.on, false);
+  assert.equal(controller.state.zones.get('Right')?.on, false);
+});
+
+test('turning a grouped zone back on wakes and ramps the controller', async () => {
+  const transport = new FakeTransport();
+  const controller = new PixelController(catalog, [
+    { name: 'Left', pixels: [0, 1] },
+    { name: 'Right', pixels: [2, 3] },
+  ], transport, 'Default', 5, 0);
+  await Promise.all([
+    controller.updateZone('Left', { on: false }),
+    controller.updateZone('Right', { on: false }),
+  ]);
+  transport.calls.length = 0;
+  await controller.updateZone('Left', { on: true });
+  assert.deepEqual(transport.calls.map(call => call.type), [
+    'brightness',
+    'power',
+    'brightness',
+    'packets',
+  ]);
+  assert.equal(controller.state.power, true);
+  assert.equal(controller.state.zones.get('Left')?.on, true);
+  assert.equal(controller.state.zones.get('Left')?.brightness, 50);
 });
 
 test('fades an identical late-night layout without reloading Finger Sketch', async () => {

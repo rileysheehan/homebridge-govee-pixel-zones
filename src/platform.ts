@@ -31,7 +31,7 @@ interface PixelZonesConfig extends PlatformConfig {
   transitionMs?: number;
 }
 
-type AccessoryKind = 'master' | 'snapshot' | 'zone';
+type AccessoryKind = 'snapshot' | 'zone';
 
 interface PixelAccessoryContext {
   kind: AccessoryKind;
@@ -112,7 +112,6 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
   }
 
   private discoverAccessories(): void {
-    this.configureMaster(this.accessory('master', 'master', 'Govee Permanent Lights'));
     for (const snapshot of this.catalog!.snapshots) {
       this.configureSnapshot(this.accessory('snapshot', snapshot.name, snapshot.name), snapshot.name);
     }
@@ -143,17 +142,6 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
       .setCharacteristic(this.Characteristic.Model, this.catalog!.sku)
       .setCharacteristic(this.Characteristic.SerialNumber, `${this.catalog!.sku}-${kind}-${key}`);
     return accessory;
-  }
-
-  private configureMaster(accessory: PlatformAccessory): void {
-    const service = accessory.getService(this.Service.Lightbulb)
-      ?? accessory.addService(this.Service.Lightbulb, accessory.displayName);
-    service.getCharacteristic(this.Characteristic.On)
-      .onGet(() => this.controller!.state.power)
-      .onSet(value => this.controller!.setPower(Boolean(value)));
-    service.getCharacteristic(this.Characteristic.Brightness)
-      .onGet(() => this.controller!.state.brightness)
-      .onSet(value => this.controller!.setBrightness(Number(value)));
   }
 
   private configureSnapshot(accessory: PlatformAccessory, name: string): void {
@@ -192,11 +180,7 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
       if (!context) {
         continue;
       }
-      if (context.kind === 'master') {
-        accessory.getService(this.Service.Lightbulb)
-          ?.updateCharacteristic(this.Characteristic.On, state.power)
-          .updateCharacteristic(this.Characteristic.Brightness, state.brightness);
-      } else if (context.kind === 'snapshot') {
+      if (context.kind === 'snapshot') {
         accessory.getService(this.Service.Switch)
           ?.updateCharacteristic(this.Characteristic.On, state.activeSnapshot === context.key);
       } else {
