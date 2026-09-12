@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 - 2026-09-12
+
+- Replace the separate master light with a HomeKit-native group of zone lights.
+- Report each zone's effective brightness after Govee global dimming.
+- Materialize global snapshot brightness into per-pixel values before independent zone edits.
+- Fade and power down the physical controller when every grouped zone turns off.
+- Preserve retained zone brightness while the controller is off for a smooth group wake.
+- Keep existing zone and snapshot accessory identities during migration.
+
 ## 0.1.0 - 2026-08-29
 
 - Decode and encode H706A Finger Sketch `ptReal` frames.

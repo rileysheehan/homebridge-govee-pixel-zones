@@ -9,12 +9,13 @@ This Homebridge plugin turns arbitrary puck ranges into normal HomeKit lights an
 
 ## What it exposes
 
-- One master light for power and global brightness.
 - One HomeKit light per configured architectural zone.
 - One HomeKit switch per imported Govee snapshot.
 - Smooth, configurable transitions generated locally by Homebridge.
 
 Snapshot switches keep the original Govee names as stable internal identifiers. You can rename their accessories independently in Apple Home without renaming the snapshots in Govee.
+
+For normal use, group the zone lights in Apple Home and give the group the name of the physical installation. The group becomes the single whole-installation tile while its contained accessories remain available as independently controlled zones. The plugin intentionally does not expose a second master-brightness accessory.
 
 ## How it works
 
@@ -22,7 +23,9 @@ The plugin preserves the stock Govee controller and sends Finger Sketch `ptReal`
 
 If two snapshots have identical per-puck colors but different master brightness, the plugin ramps brightness without reloading Finger Sketch. That avoids the visible off/on flash produced by scene reloads.
 
-Power-off fades to minimum brightness before switching off. Power-on wakes at minimum brightness and ramps to the retained level. The last commanded snapshot, brightness, power state, and custom pixel frame are persisted atomically in Homebridge storage so child-bridge restarts resume from the last known logical state.
+HomeKit zone brightness is reported as visible, effective brightness rather than raw per-pixel brightness. When a snapshot uses Govee's global dimmer, the first subsequent zone edit folds that dimmer into every pixel while moving the physical global dimmer to 100%. This preserves the untouched zones visually and makes the grouped HomeKit sliders independent and unsurprising.
+
+Turning the last zone off fades every puck before switching off the controller. Turning the group back on wakes at minimum brightness and ramps to the retained level. The last commanded snapshot, brightness, power state, and custom pixel frame are persisted atomically in Homebridge storage so child-bridge restarts resume from the last known logical state.
 
 ## Requirements
 
@@ -115,6 +118,17 @@ The example below creates two independently addressable HomeKit zones. Replace t
 Each puck may belong to at most one zone. Pucks can be left unassigned and remain controllable through imported snapshots.
 
 If the same H706A is already exposed by the stock Govee plugin, hide that device there to avoid duplicate HomeKit accessories. Other Govee devices can remain on the stock bridge.
+
+## Group zones in Apple Home
+
+After the child bridge is paired and the zone accessories appear in Apple Home:
+
+1. Open one zone's accessory settings.
+2. Choose **Group with Other Accessories**.
+3. Select the other zones and name the group.
+4. Use the group for whole-installation brightness, color, power, and ordinary day/night automations.
+
+Keep the imported snapshot switches outside the group. They are intended for holiday and special-event designs authored in the Govee app. Activating one restores its exact captured per-puck frame and global brightness; the grouped zone tile then reports the resulting effective brightness.
 
 ## Current limitations
 
