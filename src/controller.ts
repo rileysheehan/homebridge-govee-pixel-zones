@@ -465,7 +465,11 @@ export class PixelController {
       }
       const color = rgbToHsv(onColor);
       this.zoneStates.set(zone.name, {
-        on: true,
+        // Pixel colors are retained while the physical controller is off so
+        // HomeKit has a useful brightness to restore on the next group wake.
+        // The On characteristic must still reflect physical power, otherwise
+        // an off group incorrectly appears as a collection of lit zones.
+        on: this._power,
         hue: color.hue,
         saturation: color.saturation,
         brightness: Math.round(color.brightness * this._brightness / 100),

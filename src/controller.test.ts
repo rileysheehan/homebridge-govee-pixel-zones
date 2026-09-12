@@ -168,7 +168,9 @@ test('crossfades a different snapshot and finishes with its exact captured packe
 
 test('fades power off while retaining the requested brightness for the next wake', async () => {
   const transport = new FakeTransport();
-  const controller = new PixelController(catalog, [], transport, 'Default', 0, 0);
+  const controller = new PixelController(catalog, [
+    { name: 'All', pixels: [0, 1, 2, 3] },
+  ], transport, 'Default', 0, 0);
   await controller.setPower(false);
   assert.deepEqual(transport.calls, [
     { type: 'brightness', value: 1 },
@@ -176,6 +178,8 @@ test('fades power off while retaining the requested brightness for the next wake
   ]);
   assert.equal(controller.state.power, false);
   assert.equal(controller.state.brightness, 50);
+  assert.equal(controller.state.zones.get('All')?.on, false);
+  assert.equal(controller.state.zones.get('All')?.brightness, 50);
 });
 
 test('powers on at minimum brightness and ramps to the retained level', async () => {
