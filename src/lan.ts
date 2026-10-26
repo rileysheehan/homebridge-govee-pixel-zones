@@ -25,12 +25,24 @@ export function powerMessage(on: boolean): GoveeLanMessage {
   return { msg: { cmd: 'turn', data: { value: on ? 1 : 0 } } };
 }
 
+export interface PowerConfirmOptions {
+  /** How long to wait for devStatus to report the commanded power state. */
+  confirmMs?: number;
+  /** Resend `turn` this often while the controller still reports the old state. */
+  resendMs?: number;
+  /** Delay between devStatus readbacks after the first (150 ms) one. */
+  pollMs?: number;
+  /** Called once the controller reports the commanded state. */
+  onConfirmed?: (on: boolean, elapsedMs: number, sends: number) => void;
+}
+
 export class GoveeLanClient {
   private readonly socket: Socket;
 
   constructor(
     private readonly address: string | (() => Promise<string>),
     socket?: Socket,
+    private readonly power: PowerConfirmOptions = {},
   ) {
     this.socket = socket ?? createSocket('udp4');
   }
@@ -96,18 +108,44 @@ export class GoveeLanClient {
   }
 
   async setPower(on: boolean): Promise<void> {
+    // The controller can keep answering devStatus with its previous power state
+    // for a while after `turn`, most of all straight after a fade has sent it a
+    // stream of frames. Every sunrise off read back "on" three times within about
+    // a second, yet the controller was found off minutes later (MER-1551). So
+    // poll for the new state over a window, resending `turn` as we go, instead
+    // of giving up after three back-to-back tries.
+    const { confirmMs = 15000, resendMs = 3000, pollMs = 500 } = this.power;
+    const started = Date.now();
+    let nextSend = started;
+    let sends = 0;
+    let delay = 150;
     let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (;;) {
+      if (Date.now() >= nextSend) {
+        nextSend = Date.now() + resendMs;
+        try {
+          await this.send(powerMessage(on));
+          sends += 1;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay = pollMs;
       try {
-        await this.send(powerMessage(on));
-        await new Promise(resolve => setTimeout(resolve, 150));
-        if (await this.readPower() === on) return;
-        lastError = new Error('Controller reported the opposite power state');
+        if (await this.readPower() === on) {
+          this.power.onConfirmed?.(on, Date.now() - started, sends);
+          return;
+        }
+        lastError = new Error('Controller still reports the previous power state');
       } catch (error) {
         lastError = error;
       }
+      if (Date.now() - started >= confirmMs) {
+        break;
+      }
     }
-    throw new Error(`Govee power ${on ? 'on' : 'off'} not confirmed after 3 attempts: ${String(lastError)}`);
+    throw new Error(`Govee power ${on ? 'on' : 'off'} not confirmed within ${confirmMs} ms (${sends} sends): ${String(lastError)}`);
   }
 
   close(): void {

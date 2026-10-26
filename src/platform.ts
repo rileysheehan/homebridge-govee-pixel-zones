@@ -94,7 +94,10 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
       lastAddress = address;
       return address;
     }, deviceIp) : undefined;
-    this.lanClient = new GoveeLanClient(resolver ? () => resolver.resolve() : deviceIp!);
+    this.lanClient = new GoveeLanClient(resolver ? () => resolver.resolve() : deviceIp!, undefined, {
+      onConfirmed: (on, elapsedMs, sends) => this.log.info(
+        'Controller confirmed power %s after %d ms (%d %s).', on ? 'on' : 'off', elapsedMs, sends, sends === 1 ? 'send' : 'sends'),
+    });
     this.controller = new PixelController(
       this.catalog,
       this.config.zones ?? [],

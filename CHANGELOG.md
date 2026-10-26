@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2 - 2026-10-26
+
+- Confirm power changes by `devStatus` readback (first made on the live install on 2026-10-14, now committed).
+- Wait up to 15 s for the controller to report the new power state, resending `turn` every 3 s, instead of three
+  back-to-back tries: after the sunrise fade the controller kept reporting "on" for over a second, then turned out off.
+- Log how long each power change took to confirm.
+- Record an unconfirmed off as off, so the next wake sends an explicit power on instead of trusting a stale "on".
+
 ## 0.2.1 - 2026-09-17
 
 - Optional `deviceId` (full Govee device ID or MAC) enables automatic LAN IP discovery; `deviceIp` becomes a hint.

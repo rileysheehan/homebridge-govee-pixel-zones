@@ -172,13 +172,19 @@ export class PixelController {
       } else {
         const targetBrightness = this._brightness;
         await this.transitionBrightness(1);
-        await this.transport.setPower(false);
-        this._power = false;
-        // HomeKit lights retain their requested brightness while off. Keeping
-        // it here also gives the next power-on operation a useful ramp target.
-        this._brightness = targetBrightness;
-        this.refreshZoneStates();
-        this.emit();
+        try {
+          await this.transport.setPower(false);
+        } finally {
+          // Record the commanded off even when the readback never confirmed it,
+          // so the next wake sends an explicit `turn` on rather than trusting a
+          // stale "on" (MER-1551).
+          this._power = false;
+          // HomeKit lights retain their requested brightness while off. Keeping
+          // it here also gives the next power-on operation a useful ramp target.
+          this._brightness = targetBrightness;
+          this.refreshZoneStates();
+          this.emit();
+        }
       }
     });
   }
@@ -243,11 +249,20 @@ export class PixelController {
           activationPacket: this.activationPacket,
         });
         this.refreshZoneStates();
+        let powerError: unknown;
         if ([...this.zoneStates.values()].every(state => !state.on)) {
-          await this.transport.setPower(false);
+          try {
+            await this.transport.setPower(false);
+          } catch (error) {
+            powerError = error;
+          }
+          // Even unconfirmed, so the next wake sends an explicit power on.
           this._power = false;
         }
         this.emit();
+        if (powerError) {
+          throw powerError;
+        }
       }).then(
         () => waiters.forEach(waiter => waiter.resolve()),
         error => waiters.forEach(waiter => waiter.reject(error)),

@@ -122,6 +122,32 @@ test('turning every zone off fades all pucks and powers down the controller', as
   assert.equal(controller.state.zones.get('Right')?.on, false);
 });
 
+test('an unconfirmed power off still makes the next wake send an explicit power on', async () => {
+  class UnconfirmedOff extends FakeTransport {
+    override async setPower(value: boolean) {
+      await super.setPower(value);
+      if (!value) {
+        throw new Error('Govee power off not confirmed');
+      }
+    }
+  }
+  const transport = new UnconfirmedOff();
+  const controller = new PixelController(catalog, [
+    { name: 'Left', pixels: [0, 1] },
+    { name: 'Right', pixels: [2, 3] },
+  ], transport, 'Default', 5, 0);
+  const results = await Promise.allSettled([
+    controller.updateZone('Left', { on: false }),
+    controller.updateZone('Right', { on: false }),
+  ]);
+  assert.ok(results.every(result => result.status === 'rejected'));
+  assert.equal(controller.state.power, false);
+  assert.equal(controller.persistedState.power, false);
+  transport.calls.length = 0;
+  await controller.updateZone('Left', { on: true });
+  assert.deepEqual(transport.calls.filter(call => call.type === 'power'), [{ type: 'power', value: true }]);
+});
+
 test('turning a grouped zone back on wakes and ramps the controller', async () => {
   const transport = new FakeTransport();
   const controller = new PixelController(catalog, [
