@@ -21,8 +21,10 @@ import {
 } from './controller.js';
 import { GoveeLanClient } from './lan.js';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
+import { discoverAddress, IdentityResolver, normalizeIdentity } from './discovery.js';
 
 interface PixelZonesConfig extends PlatformConfig {
+  deviceId?: string;
   deviceIp?: string;
   catalogPath?: string;
   baseSnapshot?: string;
@@ -76,14 +78,26 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
   }
 
   private async start(): Promise<void> {
-    const deviceIp = this.requireConfigString('deviceIp');
+    const deviceIp = this.config.deviceIp;
+    const identity = this.config.deviceId ? normalizeIdentity(this.config.deviceId) : undefined;
+    if (!identity && !deviceIp) throw new Error('Configure deviceId or deviceIp');
     const catalogPath = this.requireConfigString('catalogPath');
     const baseSnapshot = this.requireConfigString('baseSnapshot');
     const path = isAbsolute(catalogPath) ? catalogPath : resolve(this.api.user.storagePath(), catalogPath);
     this.catalog = validateCatalog(JSON.parse(await readFile(path, 'utf8')));
     this.statePath = resolve(this.api.user.storagePath(), 'govee-pixel-zones', `${this.catalog.sku}.state.json`);
     const initialState = await this.readPersistedState();
-    this.lanClient = new GoveeLanClient(deviceIp);
+    let lastAddress: string | undefined;
+    const resolver = identity ? new IdentityResolver(async (hint) => {
+      const address = await discoverAddress(identity, this.catalog!.sku, hint);
+      if (address !== lastAddress) this.log.info('Located matching Govee controller at %s.', address);
+      lastAddress = address;
+      return address;
+    }, deviceIp) : undefined;
+    this.lanClient = new GoveeLanClient(resolver ? () => resolver.resolve() : deviceIp!, undefined, {
+      onConfirmed: (on, elapsedMs, sends) => this.log.info(
+        'Controller confirmed power %s after %d ms (%d %s).', on ? 'on' : 'off', elapsedMs, sends, sends === 1 ? 'send' : 'sends'),
+    });
     this.controller = new PixelController(
       this.catalog,
       this.config.zones ?? [],
@@ -101,10 +115,11 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
     });
     this.updateCharacteristics(this.controller.state);
     this.scheduleStateWrite();
+    if (resolver) void resolver.resolve().catch(error => this.log.warn('Initial LAN discovery failed: %s', String(error)));
     this.log.info(
       'Ready for %s at %s with %d pucks, %d zones, and %d snapshots.',
       this.catalog.sku,
-      deviceIp,
+      identity ? 'automatic LAN discovery' : deviceIp,
       this.catalog.pixelCount,
       this.config.zones?.length ?? 0,
       this.catalog.snapshots.length,
