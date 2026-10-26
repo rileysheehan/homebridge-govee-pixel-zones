@@ -161,6 +161,8 @@ export class PixelController {
   async setPower(on: boolean): Promise<void> {
     await this.serial(async () => {
       if (on === this._power) {
+        // Cached state is not proof that the physical controller obeyed.
+        await this.transport.setPower(on);
         return;
       }
       if (on) {
