@@ -28,16 +28,17 @@ export class GoveeLanClient {
   private readonly socket: Socket;
 
   constructor(
-    private readonly address: string,
+    private readonly address: string | (() => Promise<string>),
     socket?: Socket,
   ) {
     this.socket = socket ?? createSocket('udp4');
   }
 
   async send(message: GoveeLanMessage): Promise<void> {
+    const address = typeof this.address === 'string' ? this.address : await this.address();
     const payload = Buffer.from(JSON.stringify(message));
     await new Promise<void>((resolve, reject) => {
-      this.socket.send(payload, GOVEE_CONTROL_PORT, this.address, error => {
+      this.socket.send(payload, GOVEE_CONTROL_PORT, address, error => {
         if (error) {
           reject(error);
         } else {

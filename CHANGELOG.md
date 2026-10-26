@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 - 2026-09-17
+
+- Optional `deviceId` (full Govee device ID or MAC) enables automatic LAN IP discovery; `deviceIp` becomes a hint.
+- Discovery binds per interface, falls back to a paced Govee scan of small directly connected subnets, and
+  never uses an address that has not answered with the configured identity.
+
 ## 0.2.0 - 2026-09-12
 
 - Replace the separate master light with a HomeKit-native group of zone lights.

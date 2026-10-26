@@ -134,7 +134,10 @@ Keep the imported snapshot switches outside the group. They are intended for hol
 
 - H706A is the only hardware-verified model.
 - Mapping uses a command-line calibration tool; a phone-friendly mapper is planned.
-- Device IP discovery is not automatic.
+- Set `deviceId` to the controller's full Govee device ID (preferred) or six-byte MAC to enable automatic LAN IP discovery. `deviceIp` then becomes an optional discovery hint; it is never used without a matching identity response. Existing IP-only configurations remain supported.
+- Discovery requires LAN Control enabled and a reachable local network (UDP ports 4001–4003 and multicast 239.255.255.250). The address is discovered at startup and cached for ten seconds, then rediscovered on demand. Failed discovery rejects the command instead of falling back to a stale address. This is device identification, not cryptographic authentication.
+- LAN commands still do not confirm the physical lighting result. HomeKit state represents commanded state, and a controller going offline during the short discovery cache window may not be detected immediately.
+- When multicast is suppressed, discovery falls back to paced Govee scan requests on directly connected IPv4 subnets (/22 or smaller, at most 1024 candidate addresses total). Discovery times out after six seconds. Larger or isolated networks need working multicast or a current `deviceIp` hint.
 - Changes made directly in the Govee app are not reconciled into HomeKit's per-puck state.
 - The snapshot importer depends on the stock Homebridge Govee plugin's current cache format and undocumented Govee account endpoints.
 - LAN UDP commands are best-effort; retry and backpressure handling are still limited.

@@ -5,9 +5,15 @@
   "strictValidation": true,
   "schema": {
     "type": "object",
-    "required": ["name", "deviceIp", "catalogPath", "baseSnapshot"],
+    "required": ["name", "catalogPath", "baseSnapshot"],
+    "anyOf": [{"required": ["deviceId"]}, {"required": ["deviceIp"]}],
     "additionalProperties": false,
     "properties": {
+      "deviceId": {
+        "title": "Govee device ID or MAC (automatic IP discovery)",
+        "type": "string",
+        "description": "Prefer the full 8-byte Govee device ID. A 6-byte MAC matches its final six bytes."
+      },
       "name": {
         "title": "Name",
         "type": "string",
