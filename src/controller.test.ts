@@ -13,9 +13,9 @@ class FakeTransport implements PixelTransport {
   async setPower(value: boolean) { this.calls.push({ type: 'power', value }); }
 }
 
-function snapshot(name: string, brightness: number, color: { red: number; green: number; blue: number }) {
+function snapshot(name: string, brightness: number, color: { red: number; green: number; blue: number }, speed = 1) {
   const frame = {
-    speed: 1,
+    speed,
     background: { red: 1, green: 1, blue: 1 },
     groups: [{ color, pixels: [0, 1, 2, 3] }],
   };
@@ -47,6 +47,78 @@ const lateNightCatalog: SnapshotCatalog = {
     snapshot('Late Night', 5, { red: 255, green: 152, blue: 41 }),
   ],
 };
+
+// The live catalogue's Late Night differs from Default only in its speed byte.
+const seasonalCatalog: SnapshotCatalog = {
+  ...catalog,
+  snapshots: [
+    catalog.snapshots[0],
+    snapshot('Halloween', 100, { red: 255, green: 60, blue: 0 }, 100),
+    snapshot('Late Night', 5, { red: 255, green: 152, blue: 41 }, 30),
+  ],
+};
+
+function halloweenController(transport: FakeTransport) {
+  return new PixelController(seasonalCatalog, [], transport, 'Default', 0, 2, 1, {
+    schemaVersion: 1,
+    power: true,
+    brightness: 100,
+    activeSnapshot: 'Halloween',
+  });
+}
+
+test('reaches late night from another layout through the base packets, then dims', async () => {
+  const transport = new FakeTransport();
+  const controller = halloweenController(transport);
+  assert.equal(await controller.activateSnapshot('Late Night'), 'Default');
+  const [base, , lateNight] = seasonalCatalog.snapshots;
+  const frames = transport.calls.filter(call => call.type === 'packets');
+  assert.deepEqual(frames.at(-1)?.value, base.packets);
+  assert.equal(frames.some(call => JSON.stringify(call.value) === JSON.stringify(lateNight.packets)), false);
+  // The final frame is the base's packets, sent at the base's own brightness
+  // (never lower, never the 100% Halloween level); only then does it dim.
+  const types = transport.calls.map(call => call.type);
+  const lastPackets = types.lastIndexOf('packets');
+  const atFinalFrame = transport.calls.slice(0, lastPackets).filter(call => call.type === 'brightness').at(-1)?.value;
+  assert.equal(atFinalFrame, 50);
+  const brightness = transport.calls.filter(call => call.type === 'brightness').map(call => call.value as number);
+  assert.equal(brightness.at(-1), 5);
+  assert.ok(brightness.every((value, index) => index === 0 || value <= brightness[index - 1]));
+  assert.equal(controller.state.activeSnapshot, 'Late Night');
+  assert.equal(controller.state.brightness, 5);
+  assert.equal(controller.persistedState.activeSnapshot, 'Late Night');
+});
+
+test('late night after the base route then back to default only fades brightness', async () => {
+  const transport = new FakeTransport();
+  const controller = halloweenController(transport);
+  await controller.activateSnapshot('Late Night');
+  transport.calls.length = 0;
+  assert.equal(await controller.activateSnapshot('Default'), undefined);
+  assert.equal(transport.calls.some(call => call.type === 'packets'), false);
+  assert.equal(controller.state.brightness, 50);
+});
+
+test('activating the base look itself from another layout is unchanged', async () => {
+  const transport = new FakeTransport();
+  const controller = halloweenController(transport);
+  await controller.activateSnapshot('Default');
+  const [base] = seasonalCatalog.snapshots;
+  const types = transport.calls.map(call => call.type);
+  // Brightness ramps alongside the crossfade, ending on Default's own packets.
+  assert.deepEqual(types, ['brightness', 'packets', 'brightness', 'packets']);
+  assert.deepEqual(transport.calls.at(-1)?.value, base.packets);
+  assert.equal(controller.state.brightness, 50);
+});
+
+test('a different layout still loads its own packets', async () => {
+  const transport = new FakeTransport();
+  const controller = new PixelController(seasonalCatalog, [], transport, 'Default', 0, 2, 1);
+  assert.equal(await controller.activateSnapshot('Halloween'), 'Halloween');
+  assert.deepEqual(transport.calls.filter(call => call.type === 'packets').at(-1)?.value,
+    seasonalCatalog.snapshots[1].packets);
+  assert.equal(controller.state.brightness, 100);
+});
 
 test('activates a snapshot locally and refreshes logical zone state', async () => {
   const transport = new FakeTransport();

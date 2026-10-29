@@ -70,7 +70,7 @@ export class PixelController {
     readonly catalog: SnapshotCatalog,
     zones: readonly ZoneDefinition[],
     private readonly transport: PixelTransport,
-    baseSnapshotName: string,
+    private readonly baseSnapshotName: string,
     private readonly debounceMs = 80,
     private readonly transitionMs = 1500,
     private readonly frameIntervalMs = 200,
@@ -126,17 +126,42 @@ export class PixelController {
     return () => this.listeners.delete(listener);
   }
 
-  async activateSnapshot(name: string): Promise<void> {
+  /**
+   * Resolves to the name of the snapshot whose packets were loaded, or
+   * undefined when only the master brightness changed.
+   */
+  async activateSnapshot(name: string): Promise<string | undefined> {
     const snapshot = this.requireSnapshot(name);
-    await this.serial(async () => {
+    return this.serial(async () => {
       const nextPixels = frameToPixels(snapshot.frame, this.catalog.pixelCount);
       const samePixelLayout = this.pixels.every((color, pixel) => sameColor(color, nextPixels[pixel]));
       await this.ensurePoweredForTransition();
       // Default and Late Night are visually identical Finger Sketch frames at
       // different master brightnesses. Avoid reloading the frame in that case:
       // the Govee scene reload is the source of the visible off/on flash.
+      const base = this.requireSnapshot(this.baseSnapshotName);
+      const loaded = samePixelLayout || snapshot.name === base.name || !this.sameLayout(snapshot, base)
+        ? snapshot
+        : base;
       if (samePixelLayout) {
         await this.transitionBrightness(snapshot.brightness);
+      } else if (loaded !== snapshot) {
+        // A dim variant of the base look (Late Night) reached from another
+        // layout (Halloween) came up orange when its own packets were loaded
+        // while ramping to 5%. Crossfade to the base packets, ending at no
+        // more than the base's own brightness (the route that tested warm
+        // white: Halloween -> Default -> Late Night), then dim.
+        // Each half takes half the transition, so the HomeKit write stays as
+        // long as any other snapshot change (HAP gives up after 9 s).
+        const half = this.transitionMs / 2;
+        await this.transitionPixels(nextPixels, {
+          brightness: Math.min(this._brightness, base.brightness),
+          speed: base.frame.speed,
+          background: base.frame.background,
+          activationPacket: this.activationFrom(base),
+          finalPackets: base.packets,
+        }, half);
+        await this.transitionBrightness(snapshot.brightness, half);
       } else {
         await this.transitionPixels(nextPixels, {
           brightness: snapshot.brightness,
@@ -147,14 +172,15 @@ export class PixelController {
         });
       }
       this.pixels = nextPixels;
-      this.speed = snapshot.frame.speed;
-      this.background = { ...snapshot.frame.background };
-      this.activationPacket = this.activationFrom(snapshot);
+      this.speed = loaded.frame.speed;
+      this.background = { ...loaded.frame.background };
+      this.activationPacket = this.activationFrom(loaded);
       this._brightness = snapshot.brightness;
       this._power = true;
       this._activeSnapshot = snapshot.name;
       this.refreshZoneStates();
       this.emit();
+      return samePixelLayout ? undefined : loaded.name;
     });
   }
 
@@ -277,13 +303,13 @@ export class PixelController {
     return result;
   }
 
-  private async transitionBrightness(target: number): Promise<void> {
+  private async transitionBrightness(target: number, durationMs = this.transitionMs): Promise<void> {
     const start = this._brightness;
     const difference = target - start;
-    const steps = this.transitionMs <= 0 || difference === 0
+    const steps = durationMs <= 0 || difference === 0
       ? 1
-      : Math.min(Math.abs(difference), Math.max(1, Math.ceil(this.transitionMs / 100)));
-    const interval = steps > 1 ? this.transitionMs / steps : 0;
+      : Math.min(Math.abs(difference), Math.max(1, Math.ceil(durationMs / 100)));
+    const interval = steps > 1 ? durationMs / steps : 0;
     let previous = start;
     for (let step = 1; step <= steps; step += 1) {
       const value = Math.round(start + (difference * step / steps));
@@ -334,14 +360,15 @@ export class PixelController {
       activationPacket: string;
       finalPackets?: readonly string[];
     },
+    durationMs = this.transitionMs,
   ): Promise<void> {
     const startPixels = this.renderedPixels.map(color => ({ ...color }));
     const startBackground = { ...this.renderedBackground };
     const startBrightness = this._brightness;
-    const steps = this.transitionMs <= 0
+    const steps = durationMs <= 0
       ? 1
-      : Math.max(1, Math.ceil(this.transitionMs / Math.max(1, this.frameIntervalMs)));
-    const interval = steps > 1 ? this.transitionMs / steps : 0;
+      : Math.max(1, Math.ceil(durationMs / Math.max(1, this.frameIntervalMs)));
+    const interval = steps > 1 ? durationMs / steps : 0;
     let previousBrightness = startBrightness;
 
     for (let step = 1; step <= steps; step += 1) {
@@ -433,6 +460,13 @@ export class PixelController {
   private validColor(value: RgbColor): boolean {
     return [value.red, value.green, value.blue]
       .every(channel => Number.isInteger(channel) && channel >= 0 && channel <= 255);
+  }
+
+  private sameLayout(left: SnapshotDefinition, right: SnapshotDefinition): boolean {
+    const leftPixels = frameToPixels(left.frame, this.catalog.pixelCount);
+    const rightPixels = frameToPixels(right.frame, this.catalog.pixelCount);
+    return sameColor(left.frame.background, right.frame.background)
+      && leftPixels.every((color, pixel) => sameColor(color, rightPixels[pixel]));
   }
 
   private requireSnapshot(name: string): SnapshotDefinition {

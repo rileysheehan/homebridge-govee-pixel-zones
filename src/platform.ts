@@ -166,7 +166,14 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
       .onGet(() => this.controller!.state.activeSnapshot === name)
       .onSet(async value => {
         if (Boolean(value)) {
-          await this.controller!.activateSnapshot(name);
+          const loaded = await this.controller!.activateSnapshot(name);
+          if (loaded === undefined) {
+            this.log.info('Activated snapshot %s by fading brightness only.', name);
+          } else if (loaded === name) {
+            this.log.info('Activated snapshot %s.', name);
+          } else {
+            this.log.info('Activated snapshot %s: loaded the %s frame, then dimmed.', name, loaded);
+          }
         }
       });
   }
