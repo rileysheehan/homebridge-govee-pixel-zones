@@ -75,14 +75,15 @@ test('reaches late night from another layout through the base packets, then dims
   const frames = transport.calls.filter(call => call.type === 'packets');
   assert.deepEqual(frames.at(-1)?.value, base.packets);
   assert.equal(frames.some(call => JSON.stringify(call.value) === JSON.stringify(lateNight.packets)), false);
-  // Every frame is loaded at the current brightness; only then does it dim.
+  // The final frame is the base's packets, sent at the base's own brightness
+  // (never lower, never the 100% Halloween level); only then does it dim.
   const types = transport.calls.map(call => call.type);
   const lastPackets = types.lastIndexOf('packets');
-  const firstBrightness = types.indexOf('brightness');
-  assert.ok(lastPackets < firstBrightness);
-  const brightness = transport.calls.filter(call => call.type === 'brightness').map(call => call.value);
+  const atFinalFrame = transport.calls.slice(0, lastPackets).filter(call => call.type === 'brightness').at(-1)?.value;
+  assert.equal(atFinalFrame, 50);
+  const brightness = transport.calls.filter(call => call.type === 'brightness').map(call => call.value as number);
   assert.equal(brightness.at(-1), 5);
-  assert.ok((brightness as number[]).every(value => value < 100 && value >= 5));
+  assert.ok(brightness.every((value, index) => index === 0 || value <= brightness[index - 1]));
   assert.equal(controller.state.activeSnapshot, 'Late Night');
   assert.equal(controller.state.brightness, 5);
   assert.equal(controller.persistedState.activeSnapshot, 'Late Night');

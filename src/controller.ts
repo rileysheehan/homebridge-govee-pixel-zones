@@ -148,13 +148,14 @@ export class PixelController {
       } else if (loaded !== snapshot) {
         // A dim variant of the base look (Late Night) reached from another
         // layout (Halloween) came up orange when its own packets were loaded
-        // while ramping to 5%. Load the base packets at the current
-        // brightness, as the old Default -> Late Night route did, then dim.
+        // while ramping to 5%. Crossfade to the base packets, ending at no
+        // more than the base's own brightness (the route that tested warm
+        // white: Halloween -> Default -> Late Night), then dim.
         // Each half takes half the transition, so the HomeKit write stays as
         // long as any other snapshot change (HAP gives up after 9 s).
         const half = this.transitionMs / 2;
         await this.transitionPixels(nextPixels, {
-          brightness: this._brightness,
+          brightness: Math.min(this._brightness, base.brightness),
           speed: base.frame.speed,
           background: base.frame.background,
           activationPacket: this.activationFrom(base),
