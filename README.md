@@ -117,6 +117,10 @@ The example below creates two independently addressable HomeKit zones. Replace t
 
 Each puck may belong to at most one zone. Pucks can be left unassigned and remain controllable through imported snapshots.
 
+A snapshot with exactly the same pixels as `baseSnapshot` (a dimmer copy of it, such as a late-night look) is always
+shown with the base snapshot's frame: from the base it only fades brightness, and from any other look it crossfades to
+the base frame at the current brightness, then dims.
+
 If the same H706A is already exposed by the stock Govee plugin, hide that device there to avoid duplicate HomeKit accessories. Other Govee devices can remain on the stock bridge.
 
 ## Group zones in Apple Home

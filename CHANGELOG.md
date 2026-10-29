@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3 - 2026-10-28
+
+- Reach a dim copy of the base snapshot (same pixels, e.g. Late Night) from a different look (e.g. Halloween) by
+  crossfading to the base snapshot's own packets at the current brightness and only then dimming, each in half the
+  transition. Loading the copy's own packets while ramping down to 5% left the lights orange instead of warm white.
+- Log each snapshot activation and how it was reached.
+
 ## 0.2.2 - 2026-10-26
 
 - Confirm power changes by `devStatus` readback (first made on the live install on 2026-10-14, now committed).
