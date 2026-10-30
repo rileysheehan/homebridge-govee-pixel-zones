@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-10-30
+
+- New `whiteSnapshots` setting: show a snapshot with the controller's own white LEDs (LAN `colorwc`, e.g. 2700K)
+  instead of its RGB frame, optionally at a different brightness. The H706A's RGB-mixed warm white reads amber when
+  dimmed; its white LEDs don't. The change dims the current look first and then switches to white (or switches and
+  then brightens), and `colorwc` is resent every time.
+- Leaving the white LEDs always loads the next look's frame, even when its pixels match.
+- Log white activations, e.g. `Activated snapshot Late Night: 2700K white LEDs at 3%.`
+
 ## 0.2.3 - 2026-10-28
 
 - Reach a dim copy of the base snapshot (same pixels, e.g. Late Night) from a different look (e.g. Halloween) by

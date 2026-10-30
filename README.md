@@ -121,6 +121,22 @@ A snapshot with exactly the same pixels as `baseSnapshot` (a dimmer copy of it, 
 shown with the base snapshot's frame: from the base it only fades brightness, and from any other look it crossfades to
 the base frame (ending at no more than the base's brightness), then dims.
 
+### White-LED snapshots
+
+Controllers with dedicated white LEDs (the H706A is RGBWWIC) can show a snapshot as a colour temperature instead of
+its RGB frame. RGB-mixed warm white tends to read amber at low brightness; the white LEDs don't. List the snapshot in
+`whiteSnapshots`, with an optional brightness that replaces the snapshot's own:
+
+```json
+"whiteSnapshots": [
+  { "snapshot": "Late Night", "kelvin": 2700, "brightness": 3 }
+]
+```
+
+The plugin dims the current look to that level and then switches to white (or switches and then brightens), sending
+`colorwc` every time. Any other look, or a zone edit, loads a frame again. The setting lives in the Homebridge config,
+so re-importing snapshots keeps it.
+
 If the same H706A is already exposed by the stock Govee plugin, hide that device there to avoid duplicate HomeKit accessories. Other Govee devices can remain on the stock bridge.
 
 ## Group zones in Apple Home
