@@ -21,6 +21,18 @@ export function brightnessMessage(value: number): GoveeLanMessage {
   return { msg: { cmd: 'brightness', data: { value } } };
 }
 
+/**
+ * Lights the controller's own white LEDs at a colour temperature. The colour is
+ * all zero, as in the `colorwc` command tested on the H706A (MER-1652): a
+ * nonzero `colorTemInKelvin` selects the white LEDs and leaves brightness as is.
+ */
+export function colorTemperatureMessage(kelvin: number): GoveeLanMessage {
+  if (!Number.isInteger(kelvin) || kelvin < 2000 || kelvin > 9000) {
+    throw new RangeError('Colour temperature must be a whole number of kelvin from 2000 through 9000');
+  }
+  return { msg: { cmd: 'colorwc', data: { color: { r: 0, g: 0, b: 0 }, colorTemInKelvin: kelvin } } };
+}
+
 export function powerMessage(on: boolean): GoveeLanMessage {
   return { msg: { cmd: 'turn', data: { value: on ? 1 : 0 } } };
 }
@@ -67,6 +79,10 @@ export class GoveeLanClient {
 
   setBrightness(value: number): Promise<void> {
     return this.send(brightnessMessage(value));
+  }
+
+  setColorTemperature(kelvin: number): Promise<void> {
+    return this.send(colorTemperatureMessage(kelvin));
   }
 
   async readPower(): Promise<boolean> {

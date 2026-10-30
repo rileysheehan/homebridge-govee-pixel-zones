@@ -12,7 +12,7 @@ import type {
   Service,
 } from 'homebridge';
 
-import { validateCatalog, type SnapshotCatalog } from './catalog.js';
+import { applyWhiteSnapshots, validateCatalog, type SnapshotCatalog, type WhiteSnapshotConfig } from './catalog.js';
 import {
   PixelController,
   type ControllerState,
@@ -29,6 +29,7 @@ interface PixelZonesConfig extends PlatformConfig {
   catalogPath?: string;
   baseSnapshot?: string;
   zones?: ZoneDefinition[];
+  whiteSnapshots?: WhiteSnapshotConfig[];
   debounceMs?: number;
   transitionMs?: number;
 }
@@ -84,7 +85,10 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
     const catalogPath = this.requireConfigString('catalogPath');
     const baseSnapshot = this.requireConfigString('baseSnapshot');
     const path = isAbsolute(catalogPath) ? catalogPath : resolve(this.api.user.storagePath(), catalogPath);
-    this.catalog = validateCatalog(JSON.parse(await readFile(path, 'utf8')));
+    this.catalog = applyWhiteSnapshots(
+      validateCatalog(JSON.parse(await readFile(path, 'utf8'))),
+      this.config.whiteSnapshots,
+    );
     this.statePath = resolve(this.api.user.storagePath(), 'govee-pixel-zones', `${this.catalog.sku}.state.json`);
     const initialState = await this.readPersistedState();
     let lastAddress: string | undefined;
@@ -167,7 +171,10 @@ export class GoveePixelZonesPlatform implements DynamicPlatformPlugin {
       .onSet(async value => {
         if (Boolean(value)) {
           const loaded = await this.controller!.activateSnapshot(name);
-          if (loaded === undefined) {
+          const snapshot = this.catalog!.snapshots.find(candidate => candidate.name === name);
+          if (snapshot?.kelvin !== undefined) {
+            this.log.info('Activated snapshot %s: %dK white LEDs at %d%%.', name, snapshot.kelvin, snapshot.brightness);
+          } else if (loaded === undefined) {
             this.log.info('Activated snapshot %s by fading brightness only.', name);
           } else if (loaded === name) {
             this.log.info('Activated snapshot %s.', name);

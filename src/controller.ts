@@ -16,6 +16,7 @@ export interface PixelTransport {
   sendPackets(packets: readonly string[]): Promise<void>;
   setBrightness(value: number): Promise<void>;
   setPower(on: boolean): Promise<void>;
+  setColorTemperature(kelvin: number): Promise<void>;
 }
 
 export interface ControllerState {
@@ -58,6 +59,8 @@ export class PixelController {
   private background: RgbColor;
   private renderedBackground: RgbColor;
   private activationPacket: string;
+  /** The colour temperature the white LEDs show, or undefined while an RGB frame is lit. */
+  private litKelvin?: number;
   private renderTimer?: NodeJS.Timeout;
   private renderWaiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
   private pendingRenderBrightness?: number;
@@ -86,6 +89,7 @@ export class PixelController {
     this.background = { ...base.frame.background };
     this.renderedBackground = { ...base.frame.background };
     this.activationPacket = this.activationFrom(base);
+    this.litKelvin = base.kelvin;
     this._brightness = base.brightness;
     this._activeSnapshot = base.name;
     this.restoreInitialState(initialState);
@@ -134,8 +138,26 @@ export class PixelController {
     const snapshot = this.requireSnapshot(name);
     return this.serial(async () => {
       const nextPixels = frameToPixels(snapshot.frame, this.catalog.pixelCount);
-      const samePixelLayout = this.pixels.every((color, pixel) => sameColor(color, nextPixels[pixel]));
       await this.ensurePoweredForTransition();
+      if (snapshot.kelvin !== undefined) {
+        await this.showWhite(snapshot.kelvin, snapshot.brightness);
+        this.pixels = nextPixels;
+        // The white LEDs have no RGB equivalent; the snapshot's own frame is the
+        // closest start for the next crossfade back to a frame look.
+        this.renderedPixels = nextPixels.map(color => ({ ...color }));
+        this.renderedBackground = { ...snapshot.frame.background };
+        this.speed = snapshot.frame.speed;
+        this.background = { ...snapshot.frame.background };
+        this.activationPacket = this.activationFrom(snapshot);
+        this._power = true;
+        this._activeSnapshot = snapshot.name;
+        this.refreshZoneStates();
+        this.emit();
+        return snapshot.name;
+      }
+      // Leaving the white LEDs always loads a frame, even one with the same pixels.
+      const samePixelLayout = this.litKelvin === undefined
+        && this.pixels.every((color, pixel) => sameColor(color, nextPixels[pixel]));
       // Default and Late Night are visually identical Finger Sketch frames at
       // different master brightnesses. Avoid reloading the frame in that case:
       // the Govee scene reload is the source of the visible off/on flash.
@@ -303,6 +325,22 @@ export class PixelController {
     return result;
   }
 
+  /**
+   * Switches to the white LEDs at the dimmer end of the change: dim the current
+   * look first and then switch, or switch first and then brighten. `colorwc` is
+   * always sent, so a look changed outside the plugin is still corrected.
+   */
+  private async showWhite(kelvin: number, brightness: number): Promise<void> {
+    if (brightness <= this._brightness) {
+      await this.transitionBrightness(brightness);
+      await this.transport.setColorTemperature(kelvin);
+    } else {
+      await this.transport.setColorTemperature(kelvin);
+      await this.transitionBrightness(brightness);
+    }
+    this.litKelvin = kelvin;
+  }
+
   private async transitionBrightness(target: number, durationMs = this.transitionMs): Promise<void> {
     const start = this._brightness;
     const difference = target - start;
@@ -396,6 +434,7 @@ export class PixelController {
         const packets = [...encodeFingerSketch(frame).map(encodeBase64), options.activationPacket];
         await this.transport.sendPackets(packets);
       }
+      this.litKelvin = undefined;
       this.renderedPixels = framePixels;
       this.renderedBackground = frameBackground;
 
@@ -435,6 +474,7 @@ export class PixelController {
       this.background = { ...snapshot.frame.background };
       this.renderedBackground = { ...snapshot.frame.background };
       this.activationPacket = this.activationFrom(snapshot);
+      this.litKelvin = snapshot.kelvin;
       this._activeSnapshot = snapshot.name;
     } else if (initialState.pixels) {
       if (initialState.pixels.length !== this.catalog.pixelCount
@@ -451,6 +491,7 @@ export class PixelController {
       this.background = { ...initialState.background };
       this.renderedBackground = { ...initialState.background };
       this.activationPacket = initialState.activationPacket;
+      this.litKelvin = undefined;
       this._activeSnapshot = undefined;
     }
     this._power = initialState.power;

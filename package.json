@@ -2,7 +2,7 @@
   "name": "homebridge-govee-pixel-zones",
   "displayName": "Govee Pixel Zones",
   "type": "module",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "files": [
     "dist",
     "config.schema.json",

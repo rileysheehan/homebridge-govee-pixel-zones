@@ -11,6 +11,7 @@ class FakeTransport implements PixelTransport {
   async sendPackets(value: readonly string[]) { this.calls.push({ type: 'packets', value }); }
   async setBrightness(value: number) { this.calls.push({ type: 'brightness', value }); }
   async setPower(value: boolean) { this.calls.push({ type: 'power', value }); }
+  async setColorTemperature(value: number) { this.calls.push({ type: 'kelvin', value }); }
 }
 
 function snapshot(name: string, brightness: number, color: { red: number; green: number; blue: number }, speed = 1) {
@@ -327,4 +328,96 @@ test('restores a persisted snapshot and brightness after a bridge restart', () =
     brightness: 5,
     activeSnapshot: 'Late Night',
   });
+});
+
+// MER-1691: Late Night as the controller's own 2700K white LEDs.
+const whiteCatalog: SnapshotCatalog = {
+  ...seasonalCatalog,
+  snapshots: seasonalCatalog.snapshots.map(entry => entry.name === 'Late Night'
+    ? { ...entry, kelvin: 2700, brightness: 3 }
+    : entry),
+};
+
+function whiteController(transport: FakeTransport, activeSnapshot = 'Halloween', brightness = 100, power = true) {
+  return new PixelController(whiteCatalog, [{ name: 'Porch', pixels: [0, 1] }], transport, 'Default', 0, 2, 1, {
+    schemaVersion: 1,
+    power,
+    brightness,
+    activeSnapshot,
+  });
+}
+
+test('a white snapshot dims the current look, then switches to the white LEDs, with no frame', async () => {
+  const transport = new FakeTransport();
+  const controller = whiteController(transport);
+  assert.equal(await controller.activateSnapshot('Late Night'), 'Late Night');
+  assert.equal(transport.calls.some(call => call.type === 'packets'), false);
+  assert.deepEqual(transport.calls.at(-1), { type: 'kelvin', value: 2700 });
+  const brightness = transport.calls.filter(call => call.type === 'brightness').map(call => call.value as number);
+  assert.equal(brightness.at(-1), 3);
+  assert.ok(brightness.every((value, index) => index === 0 || value <= brightness[index - 1]));
+  assert.equal(controller.state.activeSnapshot, 'Late Night');
+  assert.equal(controller.state.brightness, 3);
+  assert.equal(controller.persistedState.activeSnapshot, 'Late Night');
+});
+
+test('a white snapshot from off wakes at minimum, switches to white, then brightens', async () => {
+  const transport = new FakeTransport();
+  const controller = whiteController(transport, 'Halloween', 1, false);
+  await controller.activateSnapshot('Late Night');
+  const types = transport.calls.map(call => call.type);
+  assert.deepEqual(types.slice(0, 3), ['brightness', 'power', 'kelvin']);
+  assert.equal(transport.calls[0].value, 1);
+  assert.equal(transport.calls.filter(call => call.type === 'brightness').at(-1)?.value, 3);
+  assert.equal(types.includes('packets'), false);
+});
+
+test('leaving the white LEDs for the base look loads its frame even though the pixels match', async () => {
+  const transport = new FakeTransport();
+  const controller = whiteController(transport);
+  await controller.activateSnapshot('Late Night');
+  transport.calls.length = 0;
+  assert.equal(await controller.activateSnapshot('Default'), 'Default');
+  assert.deepEqual(transport.calls.filter(call => call.type === 'packets').at(-1)?.value, whiteCatalog.snapshots[0].packets);
+  assert.equal(controller.state.brightness, 50);
+});
+
+test('white, sunrise off, then Halloween: wakes dark and crossfades to Halloween packets', async () => {
+  const transport = new FakeTransport();
+  const controller = whiteController(transport);
+  await controller.activateSnapshot('Late Night');
+  await controller.setPower(false);
+  assert.deepEqual(transport.calls.at(-1), { type: 'power', value: false });
+  transport.calls.length = 0;
+  assert.equal(await controller.activateSnapshot('Halloween'), 'Halloween');
+  assert.deepEqual(transport.calls.slice(0, 2), [{ type: 'brightness', value: 1 }, { type: 'power', value: true }]);
+  assert.equal(transport.calls.some(call => call.type === 'kelvin'), false);
+  assert.deepEqual(transport.calls.filter(call => call.type === 'packets').at(-1)?.value, whiteCatalog.snapshots[1].packets);
+  assert.equal(controller.state.brightness, 100);
+});
+
+test('a restart on a white snapshot remembers the white LEDs are lit', async () => {
+  const transport = new FakeTransport();
+  const controller = whiteController(transport, 'Late Night', 3);
+  assert.equal(await controller.activateSnapshot('Default'), 'Default');
+  assert.equal(transport.calls.some(call => call.type === 'packets'), true);
+});
+
+test('the white snapshot again resends colorwc so an outside change is corrected', async () => {
+  const transport = new FakeTransport();
+  const controller = whiteController(transport, 'Late Night', 3);
+  await controller.activateSnapshot('Late Night');
+  assert.deepEqual(transport.calls, [{ type: 'brightness', value: 3 }, { type: 'kelvin', value: 2700 }]);
+});
+
+test('a zone edit while white sends a frame and leaves the white LEDs', async () => {
+  const transport = new FakeTransport();
+  const controller = whiteController(transport);
+  await controller.activateSnapshot('Late Night');
+  await controller.updateZone('Porch', { hue: 120 });
+  assert.equal(controller.state.activeSnapshot, undefined);
+  transport.calls.length = 0;
+  // Back to the white look: colorwc again, nothing else is assumed.
+  await controller.activateSnapshot('Late Night');
+  assert.deepEqual(transport.calls.at(-1), { type: 'kelvin', value: 2700 });
 });

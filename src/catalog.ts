@@ -7,6 +7,30 @@ export interface SnapshotDefinition {
   brightness: number;
   packets: string[];
   frame: FingerSketchFrame;
+  /**
+   * When set, the snapshot is shown with the controller's own white LEDs at
+   * this colour temperature (LAN `colorwc`) instead of its RGB frame. The frame
+   * is kept as the snapshot's logical pixel model for HomeKit zone state.
+   */
+  kelvin?: number;
+}
+
+/** A Homebridge config entry that shows a snapshot with the white LEDs. */
+export interface WhiteSnapshotConfig {
+  snapshot: string;
+  kelvin: number;
+  brightness?: number;
+}
+
+export const MIN_KELVIN = 2000;
+export const MAX_KELVIN = 9000;
+
+function validKelvin(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= MIN_KELVIN && (value as number) <= MAX_KELVIN;
+}
+
+function validBrightness(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 100;
 }
 
 export interface SnapshotCatalog {
@@ -128,6 +152,51 @@ export function validateCatalog(value: unknown): SnapshotCatalog {
     }
     const decoded = snapshot.packets.map(decodeBase64);
     decodeFingerSketch(decoded.filter(packet => packet[0] === 0xa3));
+    if (snapshot.kelvin !== undefined && !validKelvin(snapshot.kelvin)) {
+      throw new Error(`Snapshot ${snapshot.name} has an invalid kelvin value`);
+    }
   }
   return catalog;
+}
+
+/**
+ * Applies `whiteSnapshots` from the Homebridge config to a catalog. Kept in the
+ * config, not the catalog, so re-importing snapshots from the Govee account
+ * never drops them.
+ */
+export function applyWhiteSnapshots(
+  catalog: SnapshotCatalog,
+  entries: readonly WhiteSnapshotConfig[] | undefined,
+): SnapshotCatalog {
+  if (entries === undefined) {
+    return catalog;
+  }
+  if (!Array.isArray(entries)) {
+    throw new Error('whiteSnapshots must be a list');
+  }
+  const byName = new Map<string, WhiteSnapshotConfig>();
+  for (const entry of entries) {
+    if (typeof entry?.snapshot !== 'string' || !catalog.snapshots.some(snapshot => snapshot.name === entry.snapshot)) {
+      throw new Error(`whiteSnapshots names a snapshot that is not in the catalog: ${String(entry?.snapshot)}`);
+    }
+    if (byName.has(entry.snapshot)) {
+      throw new Error(`whiteSnapshots lists ${entry.snapshot} more than once`);
+    }
+    if (!validKelvin(entry.kelvin)) {
+      throw new Error(`whiteSnapshots ${entry.snapshot}: kelvin must be a whole number from ${MIN_KELVIN} to ${MAX_KELVIN}`);
+    }
+    if (entry.brightness !== undefined && !validBrightness(entry.brightness)) {
+      throw new Error(`whiteSnapshots ${entry.snapshot}: brightness must be a whole number from 1 to 100`);
+    }
+    byName.set(entry.snapshot, entry);
+  }
+  return {
+    ...catalog,
+    snapshots: catalog.snapshots.map(snapshot => {
+      const entry = byName.get(snapshot.name);
+      return entry
+        ? { ...snapshot, kelvin: entry.kelvin, brightness: entry.brightness ?? snapshot.brightness }
+        : snapshot;
+    }),
+  };
 }
